@@ -123,6 +123,7 @@ esac
 ARG cuda_version=13
 RUN case "$extra_toolchains" in \
   *\;cuda\;*) \
+    yum install -y yum-utils && \
     yum-config-manager --add-repo \
       https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo && \
     yum install -y \
