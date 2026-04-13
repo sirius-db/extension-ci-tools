@@ -131,6 +131,7 @@ RUN case "$extra_toolchains" in \
       cuda-cudart-devel-${cuda_version}-* \
       cuda-driver-devel-${cuda_version}-* \
       cuda-nvml-devel-${cuda_version}-* \
+      libcurand-devel-${cuda_version}-* \
       libnvjitlink-devel-${cuda_version}-* \
       cuda-nvrtc-devel-${cuda_version}-* \
   ;; \
