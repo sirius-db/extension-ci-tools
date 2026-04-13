@@ -272,13 +272,13 @@ func TestMatrixSubcommandAppliesRunnerOverrides(t *testing.T) {
 	require.Len(t, matrix.Include, 3)
 
 	assert.Equal(t, "linux_amd64", matrix.Include[0].DuckDBArch)
-	assert.Equal(t, "duckdb-linux-x64", matrix.Include[0].Runner)
+	assert.JSONEq(t, `"duckdb-linux-x64"`, string(matrix.Include[0].Runner))
 
 	assert.Equal(t, "linux_arm64", matrix.Include[1].DuckDBArch)
-	assert.Equal(t, "duckdb-linux-arm64", matrix.Include[1].Runner)
+	assert.JSONEq(t, `"duckdb-linux-arm64"`, string(matrix.Include[1].Runner))
 
 	assert.Equal(t, "linux_arm64_musl", matrix.Include[2].DuckDBArch)
-	assert.Equal(t, "duckdb-linux-arm64", matrix.Include[2].Runner)
+	assert.JSONEq(t, `"duckdb-linux-arm64"`, string(matrix.Include[2].Runner))
 
 	assert.Contains(t, stdout, "duckdb-linux-x64")
 	assert.Contains(t, stdout, "duckdb-linux-arm64")
@@ -310,7 +310,7 @@ func TestMatrixSubcommandPreservesRunnerWhenNotOverridden(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(line, "windows_matrix=")), &matrix))
 	require.Len(t, matrix.Include, 1)
 	assert.Equal(t, "windows_amd64", matrix.Include[0].DuckDBArch)
-	assert.Equal(t, "windows-latest", matrix.Include[0].Runner)
+	assert.JSONEq(t, `"windows-latest"`, string(matrix.Include[0].Runner))
 }
 
 func TestMatrixSubcommandWithoutArgs(t *testing.T) {
