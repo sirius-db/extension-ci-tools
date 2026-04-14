@@ -23,9 +23,9 @@ type PlatformConfig struct {
 }
 
 type Entry struct {
-	DuckDBArch   string          `json:"duckdb_arch"`
-	Runner       json.RawMessage `json:"runner"`
-	OSXBuildArch *string         `json:"osx_build_arch"`
+	DuckDBArch   string  `json:"duckdb_arch"`
+	Runner       string  `json:"runner"`
+	OSXBuildArch *string `json:"osx_build_arch"`
 
 	VCPKGTargetTriplet string `json:"vcpkg_target_triplet"`
 	VCPKGHostTriplet   string `json:"vcpkg_host_triplet"`
@@ -38,9 +38,9 @@ type PlatformMatrix struct {
 }
 
 type PlatformOutput struct {
-	DuckDBArch   string          `json:"duckdb_arch"`
-	Runner       json.RawMessage `json:"runner,omitempty"`
-	OSXBuildArch *string         `json:"osx_build_arch,omitempty"`
+	DuckDBArch   string  `json:"duckdb_arch"`
+	Runner       string  `json:"runner,omitempty"`
+	OSXBuildArch *string `json:"osx_build_arch,omitempty"`
 
 	VCPKGTargetTriplet string `json:"vcpkg_target_triplet,omitempty"`
 	VCPKGHostTriplet   string `json:"vcpkg_host_triplet,omitempty"`
@@ -78,7 +78,7 @@ func ParseMatrixFile(data []byte) (MatrixFile, error) {
 	}
 	for platform, cfg := range matrix {
 		for _, entry := range cfg.Include {
-			if len(entry.Runner) == 0 {
+			if strings.TrimSpace(entry.Runner) == "" {
 				return nil, fmt.Errorf("platform %s entry %s has empty runner", platform, entry.DuckDBArch)
 			}
 		}
@@ -301,22 +301,34 @@ func toPlatformOutput(entry Entry) PlatformOutput {
 	}
 }
 
-func (o RunnerOverrides) lookup(duckdbArch string) (json.RawMessage, bool) {
+// lookup returns the runner override for a duckdb_arch. For string values
+// (e.g. "namespace-runner"), returns the unquoted string. For array values
+// (e.g. ["self-hosted", "ubuntu-22.04"]), returns the raw JSON string so
+// it can be decoded with fromJSON() in GitHub Actions runs-on.
+func (o RunnerOverrides) lookup(duckdbArch string) (string, bool) {
 	if len(o) == 0 {
-		return nil, false
+		return "", false
 	}
 
-	if override, ok := o[duckdbArch]; ok {
-		return override, true
+	raw, ok := o[duckdbArch]
+	if !ok {
+		key := runnerOverrideAliases(duckdbArch)
+		if key == "" {
+			return "", false
+		}
+		raw, ok = o[key]
+		if !ok {
+			return "", false
+		}
 	}
 
-	key := runnerOverrideAliases(duckdbArch)
-	if key == "" {
-		return nil, false
+	// If the value is a JSON string, unwrap it. Otherwise (array), keep
+	// the raw JSON so runs-on: ${{ fromJSON(matrix.runner) }} works.
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s, true
 	}
-
-	override, ok := o[key]
-	return override, ok
+	return string(raw), true
 }
 
 func runnerOverrideAliases(duckdbArch string) string {
