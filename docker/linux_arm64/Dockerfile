@@ -139,3 +139,10 @@ RUN case "$extra_toolchains" in \
   ;; \
 esac
 ENV PATH="/usr/local/cuda/bin:${PATH}"
+
+# Install protobuf compiler (protoc) for Rust proto compilation
+RUN case "$extra_toolchains" in \
+  *\;protobuf\;*) \
+    yum install -y protobuf-compiler \
+  ;; \
+esac
