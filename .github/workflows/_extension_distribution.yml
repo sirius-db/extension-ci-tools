@@ -440,10 +440,10 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-
-            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-
+            vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-
+            vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-
 
       - name: Generate timestamp for Ccache entry
         id: ccache_timestamp
@@ -505,7 +505,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Run post build command
         if: ${{ inputs.post_build_command != '' }}
@@ -689,10 +689,10 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-
-            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-
+            vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-
+            vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-
 
       - name: Configure vcpkg binary cache
         if: ${{ inputs.vcpkg_binary_cache_enabled }}
@@ -802,7 +802,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Test Extension
         if: ${{ matrix.osx_build_arch == 'arm64' && inputs.skip_tests == false }}
@@ -1025,10 +1025,10 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-
-            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-
+            vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-
+            vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-
 
       - name: Configure vcpkg binary cache
         if: ${{ inputs.vcpkg_binary_cache_enabled }}
@@ -1096,7 +1096,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Test extension
         if: ${{ inputs.skip_tests == false }}
@@ -1266,10 +1266,10 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-
-            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-
+            vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-
+            vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-
 
       - name: Configure vcpkg binary cache
         if: ${{ inputs.vcpkg_binary_cache_enabled }}
@@ -1330,7 +1330,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.upload_all_extensions }}
