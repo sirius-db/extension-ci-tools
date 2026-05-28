@@ -68,6 +68,11 @@ on:
         required: false
         type: string
         default: ''
+      # Enable a GitHub Actions cache-backed local vcpkg binary cache in addition to vcpkg_binary_sources.
+      vcpkg_binary_cache_enabled:
+        required: false
+        type: boolean
+        default: false
       vcpkg_extra_dependencies:
         required: false
         type: string
@@ -389,8 +394,13 @@ jobs:
 
       - name: Create env file for docker
         run: |
+          VCPKG_BINARY_SOURCES_DOCKER="$VCPKG_BINARY_SOURCES"
+          if [ "${{ inputs.vcpkg_binary_cache_enabled }}" = "true" ]; then
+            VCPKG_BINARY_SOURCES_DOCKER="$VCPKG_BINARY_SOURCES_DOCKER;files,/duckdb_build_dir/vcpkg_binary_cache,readwrite"
+          fi
+
           cat <<-EOF > docker_env.txt
-          VCPKG_BINARY_SOURCES=$VCPKG_BINARY_SOURCES
+          VCPKG_BINARY_SOURCES=$VCPKG_BINARY_SOURCES_DOCKER
           USE_MERGED_VCPKG_MANIFEST=${{ inputs.use_merged_vcpkg_manifest }}
           AWS_ACCESS_KEY_ID=${{ secrets.VCPKG_CACHING_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY=${{ secrets.VCPKG_CACHING_AWS_SECRET_ACCESS_KEY }}
@@ -419,6 +429,22 @@ jobs:
           EOF
           echo '${{ inputs.test_config }}'| jq -r '.test_env_variables // {} | to_entries | map("\(.key)=\(.value)")|.[]' >> docker_env.txt
 
+      - name: Create vcpkg binary cache directory
+        if: ${{ inputs.vcpkg_binary_cache_enabled }}
+        run: |
+          mkdir -p vcpkg_binary_cache
+
+      - name: Load vcpkg binary cache
+        if: ${{ inputs.vcpkg_binary_cache_enabled }}
+        continue-on-error: true
+        uses: actions/cache/restore@v5
+        with:
+          path: ./vcpkg_binary_cache
+          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-
+            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-
+
       - name: Generate timestamp for Ccache entry
         id: ccache_timestamp
         run: echo "timestamp=$(date -u '+%Y-%m-%d-%H;%M;%S')" >> "$GITHUB_OUTPUT"
@@ -428,7 +454,7 @@ jobs:
           mkdir ccache_dir
 
       - name: Load Ccache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ./ccache_dir
           key: ccache-extension-distribution-${{ matrix.duckdb_arch }}-${{ inputs.duckdb_version }}-${{ steps.ccache_timestamp.outputs.timestamp }}
@@ -473,6 +499,14 @@ jobs:
         run: |
           docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} make ${{ inputs.build_type }}
 
+      - name: Save vcpkg binary cache
+        if: ${{ inputs.vcpkg_binary_cache_enabled && inputs.save_cache }}
+        continue-on-error: true
+        uses: actions/cache/save@v5
+        with:
+          path: ./vcpkg_binary_cache
+          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+
       - name: Run post build command
         if: ${{ inputs.post_build_command != '' }}
         shell: bash
@@ -482,7 +516,7 @@ jobs:
 
       - name: Save Ccache
         if: ${{ inputs.save_cache }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ./ccache_dir
           key: ccache-extension-distribution-${{ matrix.duckdb_arch }}-${{ inputs.duckdb_version }}-${{ steps.ccache_timestamp.outputs.timestamp }}
@@ -644,6 +678,27 @@ jobs:
           echo "VCPKG_TOOLCHAIN_PATH=${{ github.workspace }}/local_vcpkg_installation/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
           echo "${{ github.workspace }}/local_vcpkg_installation" >> $GITHUB_PATH
 
+      - name: Create vcpkg binary cache directory
+        if: ${{ inputs.vcpkg_binary_cache_enabled }}
+        run: |
+          mkdir -p vcpkg_binary_cache
+
+      - name: Load vcpkg binary cache
+        if: ${{ inputs.vcpkg_binary_cache_enabled }}
+        continue-on-error: true
+        uses: actions/cache/restore@v5
+        with:
+          path: ./vcpkg_binary_cache
+          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-
+            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-
+
+      - name: Configure vcpkg binary cache
+        if: ${{ inputs.vcpkg_binary_cache_enabled }}
+        run: |
+          echo "VCPKG_BINARY_SOURCES=$VCPKG_BINARY_SOURCES;files,${{ github.workspace }}/vcpkg_binary_cache,readwrite" >> "$GITHUB_ENV"
+
       - name: Install Rust cross compile dependency
         if: ${{ (inputs.enable_rust || contains(format(';{0};', inputs.extra_toolchains), ';rust;')) && matrix.osx_build_arch == 'x86_64'}}
         run: |
@@ -740,6 +795,14 @@ jobs:
         shell: bash
         run: |
           EXTENSION_NAME=${{ inputs.extension_name }} EXTENSION_CANONICAL=${{ inputs.extension_canonical }} ENABLE_EXTENSION_AUTOINSTALL=1 ENABLE_EXTENSION_AUTOLOADING=1 make ${{ inputs.build_type }}
+
+      - name: Save vcpkg binary cache
+        if: ${{ inputs.vcpkg_binary_cache_enabled && inputs.save_cache }}
+        continue-on-error: true
+        uses: actions/cache/save@v5
+        with:
+          path: ./vcpkg_binary_cache
+          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Test Extension
         if: ${{ matrix.osx_build_arch == 'arm64' && inputs.skip_tests == false }}
@@ -950,6 +1013,29 @@ jobs:
           vcpkgGitCommitId: ${{ inputs.vcpkg_commit }}
           vcpkgGitURL: ${{ inputs.vcpkg_url }}
 
+      - name: Create vcpkg binary cache directory
+        if: ${{ inputs.vcpkg_binary_cache_enabled }}
+        shell: bash
+        run: |
+          mkdir -p vcpkg_binary_cache
+
+      - name: Load vcpkg binary cache
+        if: ${{ inputs.vcpkg_binary_cache_enabled }}
+        continue-on-error: true
+        uses: actions/cache/restore@v5
+        with:
+          path: ./vcpkg_binary_cache
+          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-
+            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-
+
+      - name: Configure vcpkg binary cache
+        if: ${{ inputs.vcpkg_binary_cache_enabled }}
+        shell: bash
+        run: |
+          echo "VCPKG_BINARY_SOURCES=$VCPKG_BINARY_SOURCES;files,${{ github.workspace }}/vcpkg_binary_cache,readwrite" >> "$GITHUB_ENV"
+
       - name: Inject extra extension config
         if: ${{ inputs.extra_extension_config }}
         shell: bash
@@ -1003,6 +1089,14 @@ jobs:
             mv "C:\Program Files\Git\usr\bin\link.exe" "C:\Program Files\Git\usr\bin\link-git.exe"
           )
           make ${{ inputs.build_type }}
+
+      - name: Save vcpkg binary cache
+        if: ${{ inputs.vcpkg_binary_cache_enabled && inputs.save_cache }}
+        continue-on-error: true
+        uses: actions/cache/save@v5
+        with:
+          path: ./vcpkg_binary_cache
+          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Test extension
         if: ${{ inputs.skip_tests == false }}
@@ -1161,6 +1255,27 @@ jobs:
           echo "VCPKG_TOOLCHAIN_PATH=${{ github.workspace }}/local_vcpkg_installation/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
           echo "${{ github.workspace }}/local_vcpkg_installation" >> $GITHUB_PATH
 
+      - name: Create vcpkg binary cache directory
+        if: ${{ inputs.vcpkg_binary_cache_enabled }}
+        run: |
+          mkdir -p vcpkg_binary_cache
+
+      - name: Load vcpkg binary cache
+        if: ${{ inputs.vcpkg_binary_cache_enabled }}
+        continue-on-error: true
+        uses: actions/cache/restore@v5
+        with:
+          path: ./vcpkg_binary_cache
+          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-
+            vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-
+
+      - name: Configure vcpkg binary cache
+        if: ${{ inputs.vcpkg_binary_cache_enabled }}
+        run: |
+          echo "VCPKG_BINARY_SOURCES=$VCPKG_BINARY_SOURCES;files,${{ github.workspace }}/vcpkg_binary_cache,readwrite" >> "$GITHUB_ENV"
+
       - name: Setup Ccache
         uses: hendrikmuhs/ccache-action@main
         continue-on-error: true
@@ -1208,6 +1323,14 @@ jobs:
       - name: Build Wasm module
         run: |
           EXTENSION_NAME=${{ inputs.extension_name }} EXTENSION_CANONICAL=${{ inputs.extension_canonical }} ENABLE_EXTENSION_AUTOINSTALL=1 ENABLE_EXTENSION_AUTOLOADING=1 make ${{ matrix.duckdb_arch }}
+
+      - name: Save vcpkg binary cache
+        if: ${{ inputs.vcpkg_binary_cache_enabled && inputs.save_cache }}
+        continue-on-error: true
+        uses: actions/cache/save@v5
+        with:
+          path: ./vcpkg_binary_cache
+          key: vcpkg-binary-cache-${{ runner.os }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.upload_all_extensions }}
