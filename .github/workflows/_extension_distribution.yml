@@ -108,7 +108,7 @@ on:
         type: boolean
         default: false
       # Pass extra toolchains
-      #   available: (parser_tools, rust, fortran, omp, python3)
+      #   available: (parser_tools, rust, libclang, fortran, omp, python3)
       extra_toolchains:
         required: false
         type: string
