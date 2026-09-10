@@ -91,6 +91,13 @@ RUN case "$extra_toolchains" in \
   ;; \
 esac
 
+# Install Clang and libclang for crates that run bindgen
+RUN case "$extra_toolchains" in \
+  *\;libclang\;*) \
+    yum install -y --setopt=install_weak_deps=False clang \
+  ;; \
+esac
+
 # Configure go
 ENV PATH="/usr/local/go/bin:${PATH}"
 RUN case "$extra_toolchains" in \
