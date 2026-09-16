@@ -98,6 +98,13 @@ RUN case "$extra_toolchains" in \
   ;; \
 esac
 
+# Install the LLVM linker
+RUN case "$extra_toolchains" in \
+  *\;lld\;*) \
+    yum install -y --setopt=install_weak_deps=False lld \
+  ;; \
+esac
+
 # Configure go
 ENV PATH="/usr/local/go/bin:${PATH}"
 RUN case "$extra_toolchains" in \
