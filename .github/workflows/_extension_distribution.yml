@@ -510,6 +510,24 @@ jobs:
         run: |
           docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} make ${{ inputs.build_type }}
 
+      # The binary cache is restored via restore-keys and used readwrite, so archives for superseded ABIs
+      # would otherwise be carried into every new cache entry. Keep only archives installed by this build.
+      # Runs inside Docker because the archives are written as root.
+      - name: Prune vcpkg binary cache
+        if: ${{ inputs.vcpkg_binary_cache_enabled && inputs.save_cache }}
+        continue-on-error: true
+        run: |
+          docker run -v `pwd`:/duckdb_build_dir -w /duckdb_build_dir duckdb/${{ matrix.duckdb_arch }} bash -euo pipefail -c '
+            db=build/${{ inputs.build_type }}/vcpkg_installed/vcpkg
+            cat "$db/status" "$db"/updates/* 2>/dev/null | sed -n "s/^Abi: //p" | sort -u > /tmp/keep || true
+            if [ ! -s /tmp/keep ]; then echo "No installed ABIs found in $db, skipping prune"; exit 0; fi
+            before=$(du -sh vcpkg_binary_cache | cut -f1)
+            find vcpkg_binary_cache -type f -name "*.zip" -print0 | while IFS= read -r -d "" f; do
+              grep -qxF "$(basename "$f" .zip)" /tmp/keep || { echo "Pruning $f"; rm -f "$f"; }
+            done
+            find vcpkg_binary_cache -mindepth 1 -type d -empty -delete
+            echo "vcpkg binary cache: $before -> $(du -sh vcpkg_binary_cache | cut -f1) ($(wc -l < /tmp/keep) ABIs kept)"'
+
       - name: Save vcpkg binary cache
         if: ${{ inputs.vcpkg_binary_cache_enabled && inputs.save_cache }}
         continue-on-error: true
