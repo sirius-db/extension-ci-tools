@@ -3,7 +3,11 @@ FROM quay.io/pypa/manylinux_2_28_x86_64
 # Setup the basic necessities
 RUN yum groupinstall -y "Development Tools"
 RUN yum install -y curl zip unzip tar autoconf libtool
-RUN yum install -y ninja-build
+# The distro's Ninja 1.8.2 cannot load CMake depfile rules with multiple outputs.
+RUN curl -fL https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-linux.zip -o /tmp/ninja.zip && \
+    unzip -q /tmp/ninja.zip -d /usr/local/bin && \
+    rm /tmp/ninja.zip && \
+    ninja --version
 RUN yum install -y perl-IPC-Cmd
 RUN yum install -y perl-core
 RUN yum install -y ccache
