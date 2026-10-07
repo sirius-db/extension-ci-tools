@@ -20,3 +20,13 @@ DuckDB's [Extension Template](https://github.com/duckdb/extension-template/actio
 
 Each branch in this repository targets a specific version of DuckDB. Note that these branches will be continually updated to ensure the build environment is functional for that version of DuckDB.
 Also note that at some point, support for versions will be dropped. Currently, we aim to support the latest 2 DuckDB versions, to allow extensions devs to transition to a new DuckDB version.
+
+### Extensions in a subdirectory
+
+Set `extension_directory` on `_extension_distribution.yml` to the directory
+containing the extension Makefile, DuckDB checkout, and vcpkg manifest. It defaults
+to `.`. Build, test, artifact, and manifest cache paths follow this directory.
+For a subdirectory build, only submodules below that directory are initialized;
+`extension-ci-tools` and `vcpkg` are provisioned separately by the workflow.
+Vcpkg overlay paths remain relative to the repository root, and the whole repository
+remains mounted in Docker. Post-build commands run in the extension directory.

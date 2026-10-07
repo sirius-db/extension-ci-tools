@@ -25,6 +25,11 @@ on:
       extension_name:
         required: true
         type: string
+      # Extension project directory, relative to the repository root.
+      extension_directory:
+        required: false
+        type: string
+        default: "."
       # If our extension is an alias extension, the name of the canonical extension
       extension_canonical:
         required: false
@@ -188,12 +193,12 @@ on:
       vcpkg_overlay_ports:
         required: false
         type: string
-        default: 'extension-ci-tools/vcpkg_ports'
+        default: ''
       # Override vcpkg overlay triplets directory
       vcpkg_overlay_triplets:
         required: false
         type: string
-        default: 'extension-ci-tools/toolchains'
+        default: ''
       # CUDA GPU architectures to build for (e.g. "75;80;86;90a"). Empty disables CUDA arch specification.
       cuda_archs:
         required: false
@@ -211,6 +216,12 @@ on:
         default: false
 
 env:
+  EXTENSION_DIRECTORY: ${{ inputs.extension_directory }}
+  CI_TOOLS_DIRECTORY: ${{ inputs.extension_directory }}/extension-ci-tools
+  VCPKG_OVERLAY_PORTS_RELATIVE: ${{ inputs.vcpkg_overlay_ports || format('{0}/extension-ci-tools/vcpkg_ports', inputs.extension_directory) }}
+  VCPKG_OVERLAY_TRIPLETS_RELATIVE: ${{ inputs.vcpkg_overlay_triplets || format('{0}/extension-ci-tools/toolchains', inputs.extension_directory) }}
+  VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/${{ inputs.vcpkg_overlay_ports || format('{0}/extension-ci-tools/vcpkg_ports', inputs.extension_directory) }}
+  VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/${{ inputs.vcpkg_overlay_triplets || format('{0}/extension-ci-tools/toolchains', inputs.extension_directory) }}
   VCPKG_BINARY_SOURCES: ${{inputs.vcpkg_binary_sources == '' && 'clear;http,https://vcpkg-cache.duckdb.org,read' || inputs.vcpkg_binary_sources }}
   USE_DEFAULT_RUNNERS: ${{ inputs.runners == '{}' }}
 
@@ -227,16 +238,16 @@ jobs:
       - uses: actions/checkout@v4
         name: Checkout Extension CI tools
         with:
-          path: 'extension-ci-tools'
+          path: ${{ env.CI_TOOLS_DIRECTORY }}
           ref: ${{ inputs.ci_tools_version }}
           repository: ${{ inputs.override_ci_tools_repository }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: extension-ci-tools/scripts/extbuild/go.mod
+          go-version-file: ${{ env.CI_TOOLS_DIRECTORY }}/scripts/extbuild/go.mod
           cache: true
-          cache-dependency-path: extension-ci-tools/scripts/extbuild/go.sum
+          cache-dependency-path: ${{ env.CI_TOOLS_DIRECTORY }}/scripts/extbuild/go.sum
 
       - name: Dump event path file
         run: |
@@ -246,9 +257,9 @@ jobs:
       - id: compute-matrix
         name: Compute extension build matrix
         run: |
-          make -C extension-ci-tools/scripts/extbuild test build -sj4
-          extension-ci-tools/scripts/extbuild/build/extbuild matrix \
-            --input extension-ci-tools/config/distribution_matrix.json \
+          make -C "$CI_TOOLS_DIRECTORY/scripts/extbuild" test build -sj4
+          "$CI_TOOLS_DIRECTORY/scripts/extbuild/build/extbuild" matrix \
+            --input "$CI_TOOLS_DIRECTORY/config/distribution_matrix.json" \
             --exclude "${{ inputs.exclude_archs }}" \
             --opt-in "${{ inputs.opt_in_archs }}" \
             --runners '${{ inputs.runners }}' \
@@ -334,39 +345,46 @@ jobs:
           repository: ${{ inputs.override_repository }}
           ref: ${{ inputs.override_ref }}
           fetch-depth: 0
-          submodules: 'recursive'
+          submodules: ${{ inputs.extension_directory == '.' && 'recursive' || 'false' }}
 
       - uses: actions/checkout@v4
         name: Checkout current repository
         if: ${{inputs.override_repository == ''}}
         with:
           fetch-depth: 0
-          submodules: 'recursive'
+          submodules: ${{ inputs.extension_directory == '.' && 'recursive' || 'false' }}
+
+      - name: Initialize extension submodules
+        if: ${{ inputs.extension_directory != '.' }}
+        shell: bash
+        run: |
+          git submodule update --init --recursive -- "$EXTENSION_DIRECTORY/" \
+            ":(exclude)$CI_TOOLS_DIRECTORY" ":(exclude)$EXTENSION_DIRECTORY/vcpkg"
 
       - uses: actions/checkout@v4
         name: Checkout Extension CI tools
         with:
-          path: 'extension-ci-tools'
+          path: ${{ env.CI_TOOLS_DIRECTORY }}
           ref: ${{ inputs.ci_tools_version }}
           repository: ${{ inputs.override_ci_tools_repository }}
 
       - name: Fetch override repository
         if: ${{inputs.override_duckdb_repository != ''}}
         run: |
-          DUCKDB_GIT_REPOSITORY=${{ inputs.override_duckdb_repository }} make set_duckdb_repository
+          DUCKDB_GIT_REPOSITORY=${{ inputs.override_duckdb_repository }} make -C "$EXTENSION_DIRECTORY" set_duckdb_repository
 
       - name: Set DuckDB to ref of calling workflow
         if: ${{inputs.set_caller_as_duckdb}}
         uses: actions/checkout@v4
         with:
-          path: 'duckdb'
+          path: ${{ inputs.extension_directory }}/duckdb
           fetch-tags: true
           fetch-depth: 0
 
       - name: Checkout DuckDB to version
         if: ${{ inputs.duckdb_version != '' }}
         run: |
-          DUCKDB_GIT_VERSION=${{ inputs.duckdb_version }} make set_duckdb_version
+          DUCKDB_GIT_VERSION=${{ inputs.duckdb_version }} make -C "$EXTENSION_DIRECTORY" set_duckdb_version
 
       - name: Tag extension
         if: ${{inputs.extension_tag != ''}}
@@ -376,12 +394,12 @@ jobs:
       - name: Tag DuckDB extension
         if: ${{inputs.duckdb_tag != ''}}
         run: |
-          DUCKDB_TAG=${{ inputs.duckdb_tag }} make set_duckdb_tag
+          DUCKDB_TAG=${{ inputs.duckdb_tag }} make -C "$EXTENSION_DIRECTORY" set_duckdb_tag
 
       - uses: actions/checkout@v4
         name: Checkout Extension CI tools
         with:
-          path: 'extension-ci-tools'
+          path: ${{ env.CI_TOOLS_DIRECTORY }}
           ref: ${{ inputs.ci_tools_version }}
           repository: ${{ inputs.override_ci_tools_repository }}
           fetch-depth: 0
@@ -393,7 +411,7 @@ jobs:
       - name: Build Docker image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
-          context: ./extension-ci-tools/docker/${{ matrix.duckdb_arch }}
+          context: ./${{ env.CI_TOOLS_DIRECTORY }}/docker/${{ matrix.duckdb_arch }}
           load: true
           tags: duckdb/${{ matrix.duckdb_arch }}
           build-args: |
@@ -420,13 +438,13 @@ jobs:
           AWS_DEFAULT_REGION=${{ secrets.VCPKG_CACHING_AWS_DEFAULT_REGION }}
           AWS_REQUEST_CHECKSUM_CALCULATION=when_required
           VCPKG_TARGET_TRIPLET=${{ matrix.vcpkg_target_triplet }}
-          VCPKG_OVERLAY_TRIPLETS=/duckdb_build_dir/${{ inputs.vcpkg_overlay_triplets }}
-          VCPKG_OVERLAY_PORTS=/duckdb_build_dir/${{ inputs.vcpkg_overlay_ports }}
+          VCPKG_OVERLAY_TRIPLETS=/duckdb_build_dir/$VCPKG_OVERLAY_TRIPLETS_RELATIVE
+          VCPKG_OVERLAY_PORTS=/duckdb_build_dir/$VCPKG_OVERLAY_PORTS_RELATIVE
           CUDAARCHS=${{ inputs.cuda_archs }}
           VCPKG_CUDA_VERSION=${{ inputs.cuda_version }}
           BUILD_SHELL=${{ inputs.build_duckdb_shell && '1' || '0' }}
-          OPENSSL_ROOT_DIR=/duckdb_build_dir/build/${{ inputs.build_type }}/vcpkg_installed/${{ matrix.vcpkg_target_triplet }}
-          OPENSSL_DIR=/duckdb_build_dir/build/${{ inputs.build_type }}/vcpkg_installed/${{ matrix.vcpkg_target_triplet }}
+          OPENSSL_ROOT_DIR=/duckdb_build_dir/$EXTENSION_DIRECTORY/build/${{ inputs.build_type }}/vcpkg_installed/${{ matrix.vcpkg_target_triplet }}
+          OPENSSL_DIR=/duckdb_build_dir/$EXTENSION_DIRECTORY/build/${{ inputs.build_type }}/vcpkg_installed/${{ matrix.vcpkg_target_triplet }}
           OPENSSL_USE_STATIC_LIBS=true
           DUCKDB_PLATFORM=${{ matrix.duckdb_arch }}
           DUCKDB_GIT_VERSION=${{ inputs.duckdb_version }}
@@ -452,7 +470,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-lock.json', 'extension_config.cmake', format('{0}/**', inputs.vcpkg_overlay_ports), format('{0}/**', inputs.vcpkg_overlay_triplets)) }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles(format('{0}/vcpkg.json', inputs.extension_directory), format('{0}/vcpkg-configuration.json', inputs.extension_directory), format('{0}/vcpkg-lock.json', inputs.extension_directory), format('{0}/extension_config.cmake', inputs.extension_directory), format('{0}/**', env.VCPKG_OVERLAY_PORTS_RELATIVE), format('{0}/**', env.VCPKG_OVERLAY_TRIPLETS_RELATIVE)) }}
           restore-keys: |
             vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-
 
@@ -479,7 +497,7 @@ jobs:
           DUCKDB_GIT_VERSION: ${{ inputs.duckdb_version }}
           LINUX_CI_IN_DOCKER: 0
         run: |
-          make configure_ci
+          make -C "$EXTENSION_DIRECTORY" configure_ci
 
       - name: Install extra vcpkg dependencies
         if: ${{ inputs.vcpkg_extra_dependencies != '' }}
@@ -498,17 +516,17 @@ jobs:
         env:
           EXTENSION_CONFIG: ${{ inputs.extra_extension_config }}
         run: |
-          echo -e "\n# Injected Extension Config\n$EXTENSION_CONFIG" >> ./extension_config.cmake
-          cat ./extension_config.cmake
+          echo -e "\n# Injected Extension Config\n$EXTENSION_CONFIG" >> "$EXTENSION_DIRECTORY/extension_config.cmake"
+          cat "$EXTENSION_DIRECTORY/extension_config.cmake"
 
       - name: Run configure (inside Docker)
         shell: bash
         run: |
-          docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} make configure_ci
+          docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} make -C "$EXTENSION_DIRECTORY" configure_ci
 
       - name: Build extension (inside Docker)
         run: |
-          docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} make ${{ inputs.build_type }}
+          docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} make -C "$EXTENSION_DIRECTORY" ${{ inputs.build_type }}
 
       # The binary cache is restored via restore-keys and used readwrite, so archives for superseded ABIs
       # would otherwise be carried into every new cache entry. Keep only archives installed by this build.
@@ -517,8 +535,8 @@ jobs:
         if: ${{ inputs.vcpkg_binary_cache_enabled && inputs.save_cache }}
         continue-on-error: true
         run: |
-          docker run -v `pwd`:/duckdb_build_dir -w /duckdb_build_dir duckdb/${{ matrix.duckdb_arch }} bash -euo pipefail -c '
-            db=build/${{ inputs.build_type }}/vcpkg_installed/vcpkg
+          docker run -e EXTENSION_DIRECTORY -v `pwd`:/duckdb_build_dir -w /duckdb_build_dir duckdb/${{ matrix.duckdb_arch }} bash -euo pipefail -c '
+            db="$EXTENSION_DIRECTORY/build/${{ inputs.build_type }}/vcpkg_installed/vcpkg"
             cat "$db/status" "$db"/updates/* 2>/dev/null | sed -n "s/^Abi: //p" | sort -u > /tmp/keep || true
             if [ ! -s /tmp/keep ]; then echo "No installed ABIs found in $db, skipping prune"; exit 0; fi
             before=$(du -sh vcpkg_binary_cache | cut -f1)
@@ -534,13 +552,14 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-lock.json', 'extension_config.cmake', format('{0}/**', inputs.vcpkg_overlay_ports), format('{0}/**', inputs.vcpkg_overlay_triplets)) }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles(format('{0}/vcpkg.json', inputs.extension_directory), format('{0}/vcpkg-configuration.json', inputs.extension_directory), format('{0}/vcpkg-lock.json', inputs.extension_directory), format('{0}/extension_config.cmake', inputs.extension_directory), format('{0}/**', env.VCPKG_OVERLAY_PORTS_RELATIVE), format('{0}/**', env.VCPKG_OVERLAY_TRIPLETS_RELATIVE)) }}
 
       - name: Run post build command
         if: ${{ inputs.post_build_command != '' }}
         shell: bash
         env:
           MATRIX_RUNNER: ${{ matrix.runner }}
+        working-directory: ${{ inputs.extension_directory }}
         run: ${{ inputs.post_build_command }}
 
       - name: Save Ccache
@@ -553,7 +572,7 @@ jobs:
       - name: Test extension (inside docker)
         if: ${{ matrix.duckdb_arch != 'linux_arm64' && inputs.skip_tests == false }}
         run: |
-          docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} make test_${{ inputs.build_type }}
+          docker run --env-file=docker_env.txt -v `pwd`:/duckdb_build_dir -v `pwd`/ccache_dir:/ccache_dir duckdb/${{ matrix.duckdb_arch }} make -C "$EXTENSION_DIRECTORY" test_${{ inputs.build_type }}
 
       - name: Test extension (outside docker)
         if: ${{ matrix.duckdb_arch != 'linux_arm64' && inputs.skip_tests == false }}
@@ -563,7 +582,7 @@ jobs:
           SUBSET_EXTENSIONS_TESTS: ${{ inputs.extensions_test_selection }}
         run: |
           eval "$(jq -r '.test_env_variables // {} | to_entries[] | "export \(.key)=\(.value | @sh)"' <<< '${{inputs.test_config}}')"
-          make test_${{ inputs.build_type }}
+          make -C "$EXTENSION_DIRECTORY" test_${{ inputs.build_type }}
 
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.upload_all_extensions }}
@@ -571,7 +590,7 @@ jobs:
           if-no-files-found: error
           name: ${{ inputs.extension_name }}-${{ inputs.duckdb_version }}-extension-${{matrix.duckdb_arch}}${{inputs.artifact_postfix}}
           path: |
-            build/${{ inputs.build_type }}/extension/${{ inputs.extension_name }}/${{ inputs.extension_name }}.duckdb_extension
+            ${{ inputs.extension_directory }}/build/${{ inputs.build_type }}/extension/${{ inputs.extension_name }}/${{ inputs.extension_name }}.duckdb_extension
 
       - uses: actions/upload-artifact@v4
         if: ${{ inputs.upload_all_extensions }}
@@ -579,12 +598,12 @@ jobs:
           if-no-files-found: error
           name: ${{ inputs.extension_name }}-${{ inputs.duckdb_version }}-extension-${{matrix.duckdb_arch}}${{inputs.artifact_postfix}}
           path: |
-            build/${{ inputs.build_type }}/repository/**/*.duckdb_extension
+            ${{ inputs.extension_directory }}/build/${{ inputs.build_type }}/repository/**/*.duckdb_extension
 
       - name: Print Rust logs
         if: ${{ inputs.rust_logs && (inputs.enable_rust || contains(format(';{0};', inputs.extra_toolchains), ';rust;')) }}
         run: |
-          for filename in build/${{ inputs.build_type }}/rust/src/*/*build-*.log; do
+          for filename in "$EXTENSION_DIRECTORY"/build/${{ inputs.build_type }}/rust/src/*/*build-*.log; do
             echo Printing logs for file $filename
             cat $filename;
             echo Done printing logs for $filename
@@ -610,8 +629,6 @@ jobs:
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
       VCPKG_TARGET_TRIPLET: ${{ matrix.vcpkg_target_triplet }}
       VCPKG_HOST_TRIPLET: ${{ matrix.vcpkg_host_triplet }}
-      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/extension-ci-tools/vcpkg_ports
-      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/extension-ci-tools/toolchains
       USE_MERGED_VCPKG_MANIFEST: ${{ inputs.use_merged_vcpkg_manifest }}
       # VCPKG caching
       AWS_ACCESS_KEY_ID: ${{ secrets.VCPKG_CACHING_AWS_ACCESS_KEY_ID }}
@@ -633,14 +650,21 @@ jobs:
           repository: ${{ inputs.override_repository }}
           ref: ${{ inputs.override_ref }}
           fetch-depth: 0
-          submodules: 'recursive'
+          submodules: ${{ inputs.extension_directory == '.' && 'recursive' || 'false' }}
 
       - uses: actions/checkout@v4
         name: Checkout current repository
         if: ${{inputs.override_repository == ''}}
         with:
           fetch-depth: 0
-          submodules: 'recursive'
+          submodules: ${{ inputs.extension_directory == '.' && 'recursive' || 'false' }}
+
+      - name: Initialize extension submodules
+        if: ${{ inputs.extension_directory != '.' }}
+        shell: bash
+        run: |
+          git submodule update --init --recursive -- "$EXTENSION_DIRECTORY/" \
+            ":(exclude)$CI_TOOLS_DIRECTORY" ":(exclude)$EXTENSION_DIRECTORY/vcpkg"
 
       - name: Install Ninja
         run: |
@@ -661,27 +685,27 @@ jobs:
       - uses: actions/checkout@v4
         name: Checkout Extension CI tools
         with:
-          path: 'extension-ci-tools'
+          path: ${{ env.CI_TOOLS_DIRECTORY }}
           ref: ${{ inputs.ci_tools_version }}
           repository: ${{ inputs.override_ci_tools_repository }}
 
       - name: Fetch override repository
         if: ${{inputs.override_duckdb_repository != ''}}
         run: |
-          DUCKDB_GIT_REPOSITORY=${{ inputs.override_duckdb_repository }} make set_duckdb_repository
+          DUCKDB_GIT_REPOSITORY=${{ inputs.override_duckdb_repository }} make -C "$EXTENSION_DIRECTORY" set_duckdb_repository
 
       - name: Set DuckDB to ref of calling workflow
         if: ${{inputs.set_caller_as_duckdb}}
         uses: actions/checkout@v4
         with:
-          path: 'duckdb'
+          path: ${{ inputs.extension_directory }}/duckdb
           fetch-tags: true
           fetch-depth: 0
 
       - name: Checkout DuckDB to version
         if: ${{ inputs.duckdb_version != '' }}
         run: |
-          DUCKDB_GIT_VERSION=${{ inputs.duckdb_version }} make set_duckdb_version
+          DUCKDB_GIT_VERSION=${{ inputs.duckdb_version }} make -C "$EXTENSION_DIRECTORY" set_duckdb_version
 
       - name: Tag extension
         if: ${{inputs.extension_tag != ''}}
@@ -691,7 +715,7 @@ jobs:
       - name: Tag DuckDB extension
         if: ${{inputs.duckdb_tag != ''}}
         run: |
-          DUCKDB_TAG=${{ inputs.duckdb_tag }} make set_duckdb_tag
+          DUCKDB_TAG=${{ inputs.duckdb_tag }} make -C "$EXTENSION_DIRECTORY" set_duckdb_tag
 
       - name: Setup vcpkg
         run: |
@@ -718,7 +742,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-lock.json', 'extension_config.cmake', format('{0}/**', inputs.vcpkg_overlay_ports), format('{0}/**', inputs.vcpkg_overlay_triplets)) }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles(format('{0}/vcpkg.json', inputs.extension_directory), format('{0}/vcpkg-configuration.json', inputs.extension_directory), format('{0}/vcpkg-lock.json', inputs.extension_directory), format('{0}/extension_config.cmake', inputs.extension_directory), format('{0}/**', env.VCPKG_OVERLAY_PORTS_RELATIVE), format('{0}/**', env.VCPKG_OVERLAY_TRIPLETS_RELATIVE)) }}
           restore-keys: |
             vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-
 
@@ -754,8 +778,8 @@ jobs:
         env:
           EXTENSION_CONFIG: ${{ inputs.extra_extension_config }}
         run: |
-          echo -e "\n# Injected Extension Config\n$EXTENSION_CONFIG" >> ./extension_config.cmake
-          cat ./extension_config.cmake
+          echo -e "\n# Injected Extension Config\n$EXTENSION_CONFIG" >> "$EXTENSION_DIRECTORY/extension_config.cmake"
+          cat "$EXTENSION_DIRECTORY/extension_config.cmake"
 
       - name: install omp (x86)
         if: ${{ contains(format(';{0};', inputs.extra_toolchains), ';omp;') && matrix.duckdb_arch == 'osx_amd64' }}
@@ -806,7 +830,7 @@ jobs:
         env:
           DUCKDB_GIT_VERSION: ${{ inputs.duckdb_version }}
         run: |
-          make configure_ci
+          make -C "$EXTENSION_DIRECTORY" configure_ci
 
       - name: Install extra vcpkg dependencies
         if: ${{ inputs.vcpkg_extra_dependencies != '' }}
@@ -822,7 +846,7 @@ jobs:
       - name: Build extension
         shell: bash
         run: |
-          EXTENSION_NAME=${{ inputs.extension_name }} EXTENSION_CANONICAL=${{ inputs.extension_canonical }} ENABLE_EXTENSION_AUTOINSTALL=1 ENABLE_EXTENSION_AUTOLOADING=1 make ${{ inputs.build_type }}
+          EXTENSION_NAME=${{ inputs.extension_name }} EXTENSION_CANONICAL=${{ inputs.extension_canonical }} ENABLE_EXTENSION_AUTOINSTALL=1 ENABLE_EXTENSION_AUTOLOADING=1 make -C "$EXTENSION_DIRECTORY" ${{ inputs.build_type }}
 
       - name: Save vcpkg binary cache
         if: ${{ inputs.vcpkg_binary_cache_enabled && inputs.save_cache }}
@@ -830,7 +854,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-lock.json', 'extension_config.cmake', format('{0}/**', inputs.vcpkg_overlay_ports), format('{0}/**', inputs.vcpkg_overlay_triplets)) }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles(format('{0}/vcpkg.json', inputs.extension_directory), format('{0}/vcpkg-configuration.json', inputs.extension_directory), format('{0}/vcpkg-lock.json', inputs.extension_directory), format('{0}/extension_config.cmake', inputs.extension_directory), format('{0}/**', env.VCPKG_OVERLAY_PORTS_RELATIVE), format('{0}/**', env.VCPKG_OVERLAY_TRIPLETS_RELATIVE)) }}
 
       - name: Test Extension
         if: ${{ matrix.osx_build_arch == 'arm64' && inputs.skip_tests == false }}
@@ -839,7 +863,7 @@ jobs:
         shell: bash
         run: |
           eval "$(jq -r '.test_env_variables // {} | to_entries[] | "export \(.key)=\(.value | @sh)"' <<< '${{inputs.test_config}}')"
-          make test_${{ inputs.build_type }}
+          make -C "$EXTENSION_DIRECTORY" test_${{ inputs.build_type }}
 
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.upload_all_extensions }}
@@ -847,7 +871,7 @@ jobs:
           if-no-files-found: error
           name: ${{ inputs.extension_name }}-${{ inputs.duckdb_version }}-extension-${{matrix.duckdb_arch}}${{inputs.artifact_postfix}}
           path: |
-            build/${{ inputs.build_type }}/extension/${{ inputs.extension_name }}/${{ inputs.extension_name }}.duckdb_extension
+            ${{ inputs.extension_directory }}/build/${{ inputs.build_type }}/extension/${{ inputs.extension_name }}/${{ inputs.extension_name }}.duckdb_extension
 
       - uses: actions/upload-artifact@v4
         if: ${{ inputs.upload_all_extensions }}
@@ -855,12 +879,12 @@ jobs:
           if-no-files-found: error
           name: ${{ inputs.extension_name }}-${{ inputs.duckdb_version }}-extension-${{matrix.duckdb_arch}}${{inputs.artifact_postfix}}
           path: |
-            build/${{ inputs.build_type }}/repository/**/*.duckdb_extension
+            ${{ inputs.extension_directory }}/build/${{ inputs.build_type }}/repository/**/*.duckdb_extension
 
       - name: Print Rust logs
         if: ${{ inputs.rust_logs && (inputs.enable_rust || contains(format(';{0};', inputs.extra_toolchains), ';rust;')) }}
         run: |
-          for filename in build/${{ inputs.build_type }}/rust/src/*/*build-*.log; do
+          for filename in "$EXTENSION_DIRECTORY"/build/${{ inputs.build_type }}/rust/src/*/*build-*.log; do
             echo Printing logs for file $filename
             cat $filename;
             echo Done printing logs for $filename
@@ -886,8 +910,6 @@ jobs:
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
       VCPKG_TARGET_TRIPLET: ${{ matrix.vcpkg_target_triplet }}
       VCPKG_HOST_TRIPLET: ${{ matrix.vcpkg_host_triplet }}
-      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/extension-ci-tools/vcpkg_ports
-      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/extension-ci-tools/toolchains
       USE_MERGED_VCPKG_MANIFEST: ${{ inputs.use_merged_vcpkg_manifest }}
       # VCPKG caching
       AWS_ACCESS_KEY_ID: ${{ secrets.VCPKG_CACHING_AWS_ACCESS_KEY_ID }}
@@ -930,14 +952,21 @@ jobs:
           repository: ${{ inputs.override_repository }}
           ref: ${{ inputs.override_ref }}
           fetch-depth: 0
-          submodules: 'recursive'
+          submodules: ${{ inputs.extension_directory == '.' && 'recursive' || 'false' }}
 
       - uses: actions/checkout@v4
         name: Checkout current repository
         if: ${{inputs.override_repository == ''}}
         with:
           fetch-depth: 0
-          submodules: 'recursive'
+          submodules: ${{ inputs.extension_directory == '.' && 'recursive' || 'false' }}
+
+      - name: Initialize extension submodules
+        if: ${{ inputs.extension_directory != '.' }}
+        shell: bash
+        run: |
+          git submodule update --init --recursive -- "$EXTENSION_DIRECTORY/" \
+            ":(exclude)$CI_TOOLS_DIRECTORY" ":(exclude)$EXTENSION_DIRECTORY/vcpkg"
 
       - uses: actions/setup-python@v5
         with:
@@ -997,31 +1026,33 @@ jobs:
       - uses: actions/checkout@v4
         name: Checkout Extension CI tools
         with:
-          path: 'extension-ci-tools'
+          path: ${{ env.CI_TOOLS_DIRECTORY }}
           ref: ${{ inputs.ci_tools_version }}
           repository: ${{ inputs.override_ci_tools_repository }}
 
       - name: Fetch override repository
+        shell: bash
         if: ${{inputs.override_duckdb_repository != ''}}
         env:
           DUCKDB_GIT_REPOSITORY: ${{ inputs.override_duckdb_repository }}
         run: |
-          make set_duckdb_repository
+          make -C "$EXTENSION_DIRECTORY" set_duckdb_repository
 
       - name: Set DuckDB to ref of calling workflow
         if: ${{inputs.set_caller_as_duckdb}}
         uses: actions/checkout@v4
         with:
-          path: 'duckdb'
+          path: ${{ inputs.extension_directory }}/duckdb
           fetch-tags: true
           fetch-depth: 0
 
       - name: Checkout DuckDB to version
+        shell: bash
         if: ${{ inputs.duckdb_version != '' }}
         env:
           DUCKDB_GIT_VERSION: ${{ inputs.duckdb_version }}
         run: |
-          make set_duckdb_version
+          make -C "$EXTENSION_DIRECTORY" set_duckdb_version
 
       - name: Tag extension
         if: ${{inputs.extension_tag != ''}}
@@ -1029,11 +1060,12 @@ jobs:
           git tag ${{ inputs.extension_tag }}
 
       - name: Tag DuckDB extension
+        shell: bash
         if: ${{inputs.duckdb_tag != ''}}
         env:
           DUCKDB_TAG: ${{ inputs.duckdb_tag }}
         run: |
-          make set_duckdb_tag
+          make -C "$EXTENSION_DIRECTORY" set_duckdb_tag
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11.1
@@ -1053,7 +1085,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-lock.json', 'extension_config.cmake', format('{0}/**', inputs.vcpkg_overlay_ports), format('{0}/**', inputs.vcpkg_overlay_triplets)) }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles(format('{0}/vcpkg.json', inputs.extension_directory), format('{0}/vcpkg-configuration.json', inputs.extension_directory), format('{0}/vcpkg-lock.json', inputs.extension_directory), format('{0}/extension_config.cmake', inputs.extension_directory), format('{0}/**', env.VCPKG_OVERLAY_PORTS_RELATIVE), format('{0}/**', env.VCPKG_OVERLAY_TRIPLETS_RELATIVE)) }}
           restore-keys: |
             vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-
 
@@ -1069,8 +1101,8 @@ jobs:
         env:
           EXTENSION_CONFIG: ${{ inputs.extra_extension_config }}
         run: |
-          echo -e "\n# Injected Extension Config\n$EXTENSION_CONFIG" >> ./extension_config.cmake
-          cat ./extension_config.cmake
+          echo -e "\n# Injected Extension Config\n$EXTENSION_CONFIG" >> "$EXTENSION_DIRECTORY/extension_config.cmake"
+          cat "$EXTENSION_DIRECTORY/extension_config.cmake"
 
       - name: Run configure
         shell: bash
@@ -1079,7 +1111,7 @@ jobs:
           DUCKDB_PLATFORM_RTOOLS: ${{ (matrix.duckdb_arch == 'windows_amd64_rtools' || matrix.duckdb_arch == 'windows_amd64_mingw') && 1 || 0 }}
           DUCKDB_GIT_VERSION: ${{ inputs.duckdb_version }}
         run: |
-          make configure_ci
+          make -C "$EXTENSION_DIRECTORY" configure_ci
 
       - name: Install extra vcpkg dependencies
         shell: bash
@@ -1115,7 +1147,7 @@ jobs:
             REM Rename link.exe to link-git.exe to avoid conflicts with git supplied linker.
             mv "C:\Program Files\Git\usr\bin\link.exe" "C:\Program Files\Git\usr\bin\link-git.exe"
           )
-          make ${{ inputs.build_type }}
+          make -C "%EXTENSION_DIRECTORY%" ${{ inputs.build_type }}
 
       - name: Save vcpkg binary cache
         if: ${{ inputs.vcpkg_binary_cache_enabled && inputs.save_cache }}
@@ -1123,7 +1155,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-lock.json', 'extension_config.cmake', format('{0}/**', inputs.vcpkg_overlay_ports), format('{0}/**', inputs.vcpkg_overlay_triplets)) }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles(format('{0}/vcpkg.json', inputs.extension_directory), format('{0}/vcpkg-configuration.json', inputs.extension_directory), format('{0}/vcpkg-lock.json', inputs.extension_directory), format('{0}/extension_config.cmake', inputs.extension_directory), format('{0}/**', env.VCPKG_OVERLAY_PORTS_RELATIVE), format('{0}/**', env.VCPKG_OVERLAY_TRIPLETS_RELATIVE)) }}
 
       - name: Test extension
         if: ${{ inputs.skip_tests == false }}
@@ -1134,7 +1166,7 @@ jobs:
           SUBSET_EXTENSIONS_TESTS: ${{ inputs.extensions_test_selection }}
         run: |
           eval "$(jq -r '.test_env_variables // {} | to_entries[] | "export \(.key)=\(.value | @sh)"' <<< '${{inputs.test_config}}')"
-          make test_${{ inputs.build_type }}
+          make -C "$EXTENSION_DIRECTORY" test_${{ inputs.build_type }}
 
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.upload_all_extensions }}
@@ -1142,7 +1174,7 @@ jobs:
           if-no-files-found: error
           name: ${{ inputs.extension_name }}-${{ inputs.duckdb_version }}-extension-${{matrix.duckdb_arch}}${{inputs.artifact_postfix}}
           path: |
-            build/${{ inputs.build_type }}/extension/${{ inputs.extension_name }}/${{ inputs.extension_name }}.duckdb_extension
+            ${{ inputs.extension_directory }}/build/${{ inputs.build_type }}/extension/${{ inputs.extension_name }}/${{ inputs.extension_name }}.duckdb_extension
 
       - uses: actions/upload-artifact@v4
         if: ${{ inputs.upload_all_extensions }}
@@ -1150,13 +1182,13 @@ jobs:
           if-no-files-found: error
           name: ${{ inputs.extension_name }}-${{ inputs.duckdb_version }}-extension-${{matrix.duckdb_arch}}${{inputs.artifact_postfix}}
           path: |
-            build/${{ inputs.build_type }}/repository/**/*.duckdb_extension
+            ${{ inputs.extension_directory }}/build/${{ inputs.build_type }}/repository/**/*.duckdb_extension
 
       - name: Print Rust logs
         if: ${{ inputs.rust_logs && (inputs.enable_rust || contains(format(';{0};', inputs.extra_toolchains), ';rust;')) }}
         shell: bash
         run: |
-          for filename in build/${{ inputs.build_type }}/rust/src/*/*build-*.log; do
+          for filename in "$EXTENSION_DIRECTORY"/build/${{ inputs.build_type }}/rust/src/*/*build-*.log; do
             echo Printing logs for file $filename
             cat $filename;
             echo Done printing logs for $filename
@@ -1188,8 +1220,6 @@ jobs:
       VCPKG_HOST_TRIPLET: ${{ matrix.vcpkg_host_triplet }}
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
       USE_MERGED_VCPKG_MANIFEST: ${{ inputs.use_merged_vcpkg_manifest }}
-      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/extension-ci-tools/vcpkg_ports
-      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/extension-ci-tools/toolchains
       # VCPKG caching
       AWS_ACCESS_KEY_ID: ${{ secrets.VCPKG_CACHING_AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.VCPKG_CACHING_AWS_SECRET_ACCESS_KEY }}
@@ -1208,39 +1238,46 @@ jobs:
           repository: ${{ inputs.override_repository }}
           ref: ${{ inputs.override_ref }}
           fetch-depth: 0
-          submodules: 'recursive'
+          submodules: ${{ inputs.extension_directory == '.' && 'recursive' || 'false' }}
 
       - uses: actions/checkout@v4
         name: Checkout current repository
         if: ${{inputs.override_repository == ''}}
         with:
           fetch-depth: 0
-          submodules: 'recursive'
+          submodules: ${{ inputs.extension_directory == '.' && 'recursive' || 'false' }}
+
+      - name: Initialize extension submodules
+        if: ${{ inputs.extension_directory != '.' }}
+        shell: bash
+        run: |
+          git submodule update --init --recursive -- "$EXTENSION_DIRECTORY/" \
+            ":(exclude)$CI_TOOLS_DIRECTORY" ":(exclude)$EXTENSION_DIRECTORY/vcpkg"
 
       - uses: actions/checkout@v4
         name: Checkout Extension CI tools
         with:
-          path: 'extension-ci-tools'
+          path: ${{ env.CI_TOOLS_DIRECTORY }}
           ref: ${{ inputs.ci_tools_version }}
           repository: ${{ inputs.override_ci_tools_repository }}
 
       - name: Fetch override repository
         if: ${{inputs.override_duckdb_repository != ''}}
         run: |
-          DUCKDB_GIT_REPOSITORY=${{ inputs.override_duckdb_repository }} make set_duckdb_repository
+          DUCKDB_GIT_REPOSITORY=${{ inputs.override_duckdb_repository }} make -C "$EXTENSION_DIRECTORY" set_duckdb_repository
 
       - name: Set DuckDB to ref of calling workflow
         if: ${{inputs.set_caller_as_duckdb}}
         uses: actions/checkout@v4
         with:
-          path: 'duckdb'
+          path: ${{ inputs.extension_directory }}/duckdb
           fetch-tags: true
           fetch-depth: 0
 
       - name: Checkout DuckDB to version
         if: ${{ inputs.duckdb_version != '' }}
         run: |
-          DUCKDB_GIT_VERSION=${{ inputs.duckdb_version }} make set_duckdb_version
+          DUCKDB_GIT_VERSION=${{ inputs.duckdb_version }} make -C "$EXTENSION_DIRECTORY" set_duckdb_version
 
       - name: Tag extension
         if: ${{inputs.extension_tag != ''}}
@@ -1250,7 +1287,7 @@ jobs:
       - name: Tag DuckDB extension
         if: ${{inputs.duckdb_tag != ''}}
         run: |
-          DUCKDB_TAG=${{ inputs.duckdb_tag }} make set_duckdb_tag
+          DUCKDB_TAG=${{ inputs.duckdb_tag }} make -C "$EXTENSION_DIRECTORY" set_duckdb_tag
 
       - uses: mymindstorm/setup-emsdk@v13
         with:
@@ -1293,7 +1330,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-lock.json', 'extension_config.cmake', format('{0}/**', inputs.vcpkg_overlay_ports), format('{0}/**', inputs.vcpkg_overlay_triplets)) }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles(format('{0}/vcpkg.json', inputs.extension_directory), format('{0}/vcpkg-configuration.json', inputs.extension_directory), format('{0}/vcpkg-lock.json', inputs.extension_directory), format('{0}/extension_config.cmake', inputs.extension_directory), format('{0}/**', env.VCPKG_OVERLAY_PORTS_RELATIVE), format('{0}/**', env.VCPKG_OVERLAY_TRIPLETS_RELATIVE)) }}
           restore-keys: |
             vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-
 
@@ -1324,15 +1361,15 @@ jobs:
         env:
           EXTENSION_CONFIG: ${{ inputs.extra_extension_config }}
         run: |
-          echo -e "\n# Injected Extension Config\n$EXTENSION_CONFIG" >> ./extension_config.cmake
-          cat ./extension_config.cmake
+          echo -e "\n# Injected Extension Config\n$EXTENSION_CONFIG" >> "$EXTENSION_DIRECTORY/extension_config.cmake"
+          cat "$EXTENSION_DIRECTORY/extension_config.cmake"
 
       - name: Run configure
         shell: bash
         env:
           DUCKDB_GIT_VERSION: ${{ inputs.duckdb_version }}
         run: |
-          make configure_ci
+          make -C "$EXTENSION_DIRECTORY" configure_ci
 
       - name: Install extra vcpkg dependencies
         if: ${{ inputs.vcpkg_extra_dependencies != '' }}
@@ -1348,7 +1385,7 @@ jobs:
 
       - name: Build Wasm module
         run: |
-          EXTENSION_NAME=${{ inputs.extension_name }} EXTENSION_CANONICAL=${{ inputs.extension_canonical }} ENABLE_EXTENSION_AUTOINSTALL=1 ENABLE_EXTENSION_AUTOLOADING=1 make ${{ matrix.duckdb_arch }}
+          EXTENSION_NAME=${{ inputs.extension_name }} EXTENSION_CANONICAL=${{ inputs.extension_canonical }} ENABLE_EXTENSION_AUTOINSTALL=1 ENABLE_EXTENSION_AUTOLOADING=1 make -C "$EXTENSION_DIRECTORY" ${{ matrix.duckdb_arch }}
 
       - name: Save vcpkg binary cache
         if: ${{ inputs.vcpkg_binary_cache_enabled && inputs.save_cache }}
@@ -1356,7 +1393,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ./vcpkg_binary_cache
-          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-lock.json', 'extension_config.cmake', format('{0}/**', inputs.vcpkg_overlay_ports), format('{0}/**', inputs.vcpkg_overlay_triplets)) }}
+          key: vcpkg-binary-cache-${{ runner.os }}-cuda${{ inputs.cuda_version }}-${{ matrix.vcpkg_target_triplet }}-${{ matrix.vcpkg_host_triplet }}-${{ inputs.vcpkg_commit }}-${{ matrix.duckdb_arch }}-${{ hashFiles(format('{0}/vcpkg.json', inputs.extension_directory), format('{0}/vcpkg-configuration.json', inputs.extension_directory), format('{0}/vcpkg-lock.json', inputs.extension_directory), format('{0}/extension_config.cmake', inputs.extension_directory), format('{0}/**', env.VCPKG_OVERLAY_PORTS_RELATIVE), format('{0}/**', env.VCPKG_OVERLAY_TRIPLETS_RELATIVE)) }}
 
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.upload_all_extensions }}
@@ -1364,7 +1401,7 @@ jobs:
           if-no-files-found: error
           name: ${{ inputs.extension_name }}-${{ inputs.duckdb_version }}-extension-${{matrix.duckdb_arch}}${{inputs.artifact_postfix}}
           path: |
-            build/${{ matrix.duckdb_arch }}/extension/${{ inputs.extension_name }}/${{ inputs.extension_name }}.duckdb_extension.wasm
+            ${{ inputs.extension_directory }}/build/${{ matrix.duckdb_arch }}/extension/${{ inputs.extension_name }}/${{ inputs.extension_name }}.duckdb_extension.wasm
 
       - uses: actions/upload-artifact@v4
         if: ${{ inputs.upload_all_extensions}}
@@ -1372,13 +1409,13 @@ jobs:
           if-no-files-found: error
           name: ${{ inputs.extension_name }}-${{ inputs.duckdb_version }}-extension-${{matrix.duckdb_arch}}${{inputs.artifact_postfix}}
           path: |
-            build/${{ matrix.duckdb_arch }}/repository/**/*.duckdb_extension.wasm
+            ${{ inputs.extension_directory }}/build/${{ matrix.duckdb_arch }}/repository/**/*.duckdb_extension.wasm
 
       - name: Print Rust logs
         if: ${{ inputs.rust_logs && (inputs.enable_rust || contains(format(';{0};', inputs.extra_toolchains), ';rust;')) }}
         shell: bash
         run: |
-          for filename in build/${{ inputs.build_type }}/rust/src/*/*build-*.log; do
+          for filename in "$EXTENSION_DIRECTORY"/build/${{ inputs.build_type }}/rust/src/*/*build-*.log; do
             echo Printing logs for file $filename
             cat $filename;
             echo Done printing logs for $filename
