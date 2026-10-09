@@ -137,24 +137,29 @@ RUN case "$extra_toolchains" in \
   ;; \
 esac
 
-# Install CUDA toolkit (nvcc, dev headers, runtime)
+# Pin one toolkit minor: package-name wildcards install every matching minor.
 ARG cuda_version=13
 RUN case "$extra_toolchains" in \
   *\;cuda\;*) \
+    case "$cuda_version" in \
+      12) cuda_toolkit=12-9 ;; \
+      13) cuda_toolkit=13-4 ;; \
+      *) echo "Unsupported CUDA major version: $cuda_version" >&2; exit 1 ;; \
+    esac && \
     yum install -y yum-utils && \
     yum-config-manager --add-repo \
       https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo && \
     yum install -y \
-      cuda-nvcc-${cuda_version}-* \
-      cuda-cudart-devel-${cuda_version}-* \
-      cuda-driver-devel-${cuda_version}-* \
-      cuda-nvml-devel-${cuda_version}-* \
-      libcurand-devel-${cuda_version}-* \
-      libcublas-devel-${cuda_version}-* \
-      libcusolver-devel-${cuda_version}-* \
-      libcusparse-devel-${cuda_version}-* \
-      libnvjitlink-devel-${cuda_version}-* \
-      cuda-nvrtc-devel-${cuda_version}-* \
+      "cuda-nvcc-${cuda_toolkit}" \
+      "cuda-cudart-devel-${cuda_toolkit}" \
+      "cuda-driver-devel-${cuda_toolkit}" \
+      "cuda-nvml-devel-${cuda_toolkit}" \
+      "libcurand-devel-${cuda_toolkit}" \
+      "libcublas-devel-${cuda_toolkit}" \
+      "libcusolver-devel-${cuda_toolkit}" \
+      "libcusparse-devel-${cuda_toolkit}" \
+      "libnvjitlink-devel-${cuda_toolkit}" \
+      "cuda-nvrtc-devel-${cuda_toolkit}" \
   ;; \
 esac
 ENV PATH="/usr/local/cuda/bin:${PATH}"
